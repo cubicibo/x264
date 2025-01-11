@@ -779,10 +779,10 @@ static void help( x264_param_t *defaults, int longhelp )
         "                              QP is optional (none lets x264 choose). Frametypes: I,i,K,P,B,b.\n"
         "                                  K=<I or i> depending on open-gop setting\n"
         "                              QPs are restricted by qpmin/qpmax.\n" );
-    H2( "      --psfile <string>       Specify pic_struct in Picture Timing SEI for all frames\n"
+    H2( "      --psfile <string>       Specify pic_struct values of every frame Picture Timing SEI\n"
         "                              Format of each line: framenumber ffo pic_struct\n"
-        "                              ffo is the frame-field order (0:P, 1:BFF, 2:TFF).\n"
-        "                              Possible pic_struct values are defined in H.264 (0-9).\n" );
+        "                              ffo is the frame-field order: 0:P, 1:BFF, 2:TFF.\n"
+        "                              Accepted pic_struct values are defined in H.264 Table D-1\n" );
     H1( "\n" );
     H1( "Analysis:\n" );
     H1( "\n" );
@@ -1850,20 +1850,18 @@ static int parse_psfile( cli_opt_t *opt, x264_picture_t *pic, int i_frame )
             continue;
         if( ret <= 2 )
         {
-            //x264_cli_log( "x264", X264_LOG_ERROR, "can't parse psfile for frame %d\n", i_frame );
             fclose( opt->psfile );
             opt->psfile = NULL;
             break;
         }
-        /* x264 offsets pic_struct by one */
-        if( ret == 3 && ps >= 0 && ps < PIC_STRUCT_TRIPLE && ffo >= 0 && ffo <= 2)
+        int b_valid_pic_struct = ps >= 0 && ps < PIC_STRUCT_TRIPLE && ps != 1 && ps != 2;
+        if( ret == 3 && b_valid_pic_struct && ffo >= 0 && ffo <= 2)
         {
-            //x264_cli_log( "x264", X264_LOG_ERROR, "PS %d %d %d - %d\n", ps+1, ffo, num, i_frame);
-            pic->i_pic_struct = ps+1;
+            pic->i_pic_struct = ps+1; /* x264 offsets pic_struct by one */
             return ffo;
         }
     }
-    FAIL_IF_ERROR( 1, "psfile parsing failed\n" );
+    FAIL_IF_ERROR( 1, "psfile parsing failed (or attempted to use PAFF).\n" );
 }
 
 
