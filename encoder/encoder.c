@@ -1908,6 +1908,7 @@ static int encoder_try_reconfig( x264_t *h, x264_param_t *param, int *rc_reconfi
     COPY( i_slice_count );
     COPY( i_slice_count_max );
     COPY( b_tff );
+    COPY( b_fake_interlaced );
 
     /* VBV can't be turned on if it wasn't on to begin with */
     if( h->param.rc.i_vbv_max_bitrate > 0 && h->param.rc.i_vbv_buffer_size > 0 &&

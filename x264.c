@@ -132,6 +132,7 @@ typedef struct {
     hnd_t hin;
     hnd_t hout;
     FILE *qpfile;
+    FILE *psfile;
     FILE *tcfile_out;
     double timebase_convert_multiplier;
     int i_pulldown;
@@ -406,6 +407,8 @@ REALIGN_STACK int main( int argc, char **argv )
         fclose( opt.tcfile_out );
     if( opt.qpfile )
         fclose( opt.qpfile );
+    if( opt.psfile )
+        fclose( opt.psfile );
     x264_param_cleanup( &param );
 
 #ifdef _WIN32
@@ -776,6 +779,10 @@ static void help( x264_param_t *defaults, int longhelp )
         "                              QP is optional (none lets x264 choose). Frametypes: I,i,K,P,B,b.\n"
         "                                  K=<I or i> depending on open-gop setting\n"
         "                              QPs are restricted by qpmin/qpmax.\n" );
+    H2( "      --psfile <string>       Specify pic_struct in Picture Timing SEI for all frames\n"
+        "                              Format of each line: framenumber ffo pic_struct\n"
+        "                              ffo is the frame-field order (0:P, 1:BFF, 2:TFF).\n"
+        "                              Possible pic_struct values are defined in H.264 (0-9).\n" );
     H1( "\n" );
     H1( "Analysis:\n" );
     H1( "\n" );
@@ -981,6 +988,7 @@ typedef enum
     OPT_FRAMES = 256,
     OPT_SEEK,
     OPT_QPFILE,
+    OPT_PSFILE,
     OPT_THREAD_INPUT,
     OPT_QUIET,
     OPT_NOPROGRESS,
@@ -1116,6 +1124,7 @@ static struct option long_options[] =
     { "cplxblur",             required_argument, NULL, 0 },
     { "zones",                required_argument, NULL, 0 },
     { "qpfile",               required_argument, NULL, OPT_QPFILE },
+    { "psfile",               required_argument, NULL, OPT_PSFILE },
     { "threads",              required_argument, NULL, 0 },
     { "lookahead-threads",    required_argument, NULL, 0 },
     { "sliced-threads",       no_argument,       NULL, 0 },
@@ -1492,6 +1501,16 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
                     return -1;
                 }
                 break;
+            case OPT_PSFILE:
+                opt->psfile = x264_fopen( optarg, "rb" );
+                FAIL_IF_ERROR( !opt->psfile, "can't open psfile `%s'\n", optarg );
+                if( !x264_is_regular_file( opt->psfile ) )
+                {
+                    x264_cli_log( "x264", X264_LOG_ERROR, "psfile incompatible with non-regular file `%s'\n", optarg );
+                    fclose( opt->psfile );
+                    return -1;
+                }
+                break;
             case OPT_THREAD_INPUT:
                 b_thread_input = 1;
                 break;
@@ -1798,9 +1817,55 @@ generic_option:
             }
     }
 
-
     return 0;
 }
+
+static int parse_psfile( cli_opt_t *opt, x264_picture_t *pic, int i_frame )
+{
+    int num = -1;
+    char buf[100];
+    while( num < i_frame )
+    {
+        int64_t file_pos = ftell( opt->psfile );
+        int ret = fscanf( opt->psfile, " %99[^\n]\n", buf );
+        int ffo = -1, ps = -1;
+        if( ret == 1 )
+        {
+            ret = sscanf( buf, "%d %d %d", &num, &ffo, &ps );
+            if( ret == EOF )
+                ret = 0;
+        }
+        if( num > i_frame || ret == EOF )
+        {
+            if( ret == EOF || file_pos < 0 || fseek( opt->psfile, file_pos, SEEK_SET ) )
+            {
+                if( ret != EOF )
+                    x264_cli_log( "x264", X264_LOG_ERROR, "psfile seeking failed\n" );
+                fclose( opt->psfile );
+                opt->psfile = NULL;
+            }
+            break;
+        }
+        if( (num < i_frame && ret >= 2) || buf[0] == '#' || buf[0] == '\r' || buf[0] == '\n' )
+            continue;
+        if( ret <= 2 )
+        {
+            //x264_cli_log( "x264", X264_LOG_ERROR, "can't parse psfile for frame %d\n", i_frame );
+            fclose( opt->psfile );
+            opt->psfile = NULL;
+            break;
+        }
+        /* x264 offsets pic_struct by one */
+        if( ret == 3 && ps >= 0 && ps < PIC_STRUCT_TRIPLE && ffo >= 0 && ffo <= 2)
+        {
+            //x264_cli_log( "x264", X264_LOG_ERROR, "PS %d %d %d - %d\n", ps+1, ffo, num, i_frame);
+            pic->i_pic_struct = ps+1;
+            return ffo;
+        }
+    }
+    FAIL_IF_ERROR( 1, "psfile parsing failed\n" );
+}
+
 
 static void parse_qpfile( cli_opt_t *opt, x264_picture_t *pic, int i_frame )
 {
@@ -1926,7 +1991,6 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
     x264_picture_t pic;
     cli_pic_t cli_pic;
     const cli_pulldown_t *pulldown = NULL; // shut up gcc
-
     int     i_frame = 0;
     int     i_frame_output = 0;
     int64_t i_end, i_previous = 0, i_start = 0;
@@ -1943,6 +2007,8 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
     double  duration;
     double  pulldown_pts = 0;
     int     retval = 0;
+    int     field_frame_encoding;// = param->b_interlaced*(param->b_tff ? 2 : 1);
+    int     b_initially_interlaced = param->b_interlaced || param->b_fake_interlaced;
 
     opt->b_progress &= param->i_log_level < X264_LOG_DEBUG;
 
@@ -1956,6 +2022,13 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
         FAIL_IF_ERROR2( fmod( param->i_fps_num * pulldown->fps_factor, 1 ),
                         "unsupported framerate for chosen pulldown\n" );
         param->i_timebase_den = param->i_fps_num * pulldown->fps_factor;
+    }
+
+    if ( opt->psfile )
+    {
+        param->b_pic_struct = 1;
+        param->i_timebase_num = param->i_fps_den;
+        param->i_timebase_den = param->i_fps_num;
     }
 
     h = x264_encoder_open( param );
@@ -1996,8 +2069,26 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
         if( !param->b_vfr_input )
             pic.i_pts = i_frame;
 
-        if( opt->i_pulldown && !param->b_vfr_input )
+        if( opt->psfile )
         {
+            field_frame_encoding = parse_psfile( opt, &pic, i_frame + opt->i_seek );
+            if (field_frame_encoding == 0 && param->b_interlaced)
+            {
+                param->b_fake_interlaced = b_initially_interlaced;
+                x264_encoder_reconfig(h, param);
+            }
+            else if (field_frame_encoding > 0 && param->b_interlaced)
+            {
+                param->b_tff = 2 == field_frame_encoding;
+                param->b_fake_interlaced = 0;
+                x264_encoder_reconfig(h, param);
+            }
+            pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
+            pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
+        }
+        else if( opt->i_pulldown && !param->b_vfr_input )
+        {
+            x264_cli_log( "x264", X264_LOG_WARNING, "pulldown with psfile!\n" );
             pic.i_pic_struct = pulldown->pattern[ i_frame % pulldown->mod ];
             pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
             pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
@@ -2026,6 +2117,7 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
 
         prev_dts = last_dts;
         i_frame_size = encode_frame( h, opt->hout, &pic, &last_dts );
+
         if( i_frame_size < 0 )
         {
             b_ctrl_c = 1; /* lie to exit the loop */
