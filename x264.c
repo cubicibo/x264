@@ -2016,7 +2016,7 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
     double  pulldown_pts = 0;
     int     retval = 0;
     int     i_field_frame_encoding;
-    int     b_currently_interlaced = param->b_interlaced;
+    int     i_active_field_order = param->b_interlaced ? 1 + param->b_tff : 0;
 
     opt->b_progress &= param->i_log_level < X264_LOG_DEBUG;
 
@@ -2081,24 +2081,24 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
         {
 #define STR_FIELD_ORDER ( 2 == i_field_frame_encoding ? "tff" : "bff" )
             i_field_frame_encoding = parse_psfile( opt, &pic, i_frame + opt->i_seek );
-            if ( i_field_frame_encoding == 0 && b_currently_interlaced )
+            if ( i_field_frame_encoding == 0 && i_active_field_order )
             {
                 x264_param_t *new_param = calloc( 1, sizeof( x264_param_t ) );
                 memcpy( new_param, param, sizeof( x264_param_t ) );
                 new_param->b_fake_interlaced = 1;
-                b_currently_interlaced = 0;
+                i_active_field_order = 0;
 
                 pic.param = new_param;
                 pic.param->param_free = free;
             }
-            else if ( i_field_frame_encoding > 0 && !b_currently_interlaced && param->b_interlaced )
+            else if ( i_field_frame_encoding != i_active_field_order && param->b_interlaced )
             {
                 x264_param_t *new_param = calloc( 1, sizeof(x264_param_t) );
                 memcpy( new_param, param, sizeof(x264_param_t) );
 
                 new_param->b_tff = 2 == i_field_frame_encoding;
                 new_param->b_fake_interlaced = 0;
-                b_currently_interlaced = 1;
+                i_active_field_order = 1 + new_param->b_tff;
 
                 pic.param = new_param;
                 pic.param->param_free = free;
@@ -2110,7 +2110,7 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
                                 i_frame, STR_FIELD_ORDER );
             }
 
-            FAIL_IF_ERROR2( b_currently_interlaced && ( pic.i_pic_struct == PIC_STRUCT_PROGRESSIVE || pic.i_pic_struct >= PIC_STRUCT_DOUBLE ),
+            FAIL_IF_ERROR2( i_active_field_order && ( pic.i_pic_struct == PIC_STRUCT_PROGRESSIVE || pic.i_pic_struct >= PIC_STRUCT_DOUBLE ),
                             "Cannot set a progressive pic_struct on %s frame %u.", STR_FIELD_ORDER, i_frame );
 
             pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
