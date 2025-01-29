@@ -2657,7 +2657,7 @@ static inline void slice_init( x264_t *h, int i_nal_type, int i_global_qp )
     if( h->sps->i_poc_type == 0 )
     {
         h->sh.i_poc = h->fdec->i_poc;
-        if( PARAM_INTERLACED )
+        if( PARAM_INTERLACED && !h->param.b_fake_interlaced )
         {
             h->sh.i_delta_poc_bottom = h->param.b_tff ? 1 : -1;
             h->sh.i_poc += h->sh.i_delta_poc_bottom == -1;

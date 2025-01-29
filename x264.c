@@ -1793,6 +1793,12 @@ generic_option:
         x264_cli_log( "x264", X264_LOG_WARNING, "input appears to be interlaced, but not compiled with interlaced support\n" );
 #endif
     }
+    if ( info.interlaced && param->b_fake_interlaced )
+    {
+        x264_cli_log( "x264", X264_LOG_WARNING, "fake-interlaced ignored with interlace flags.\n" );
+        param->b_fake_interlaced = 0;
+    }
+
     /* if the user never specified the output range and the input is now rgb, default it to pc */
     int csp = param->i_csp & X264_CSP_MASK;
     if( csp >= X264_CSP_BGR && csp <= X264_CSP_RGB )
@@ -1854,10 +1860,11 @@ static int parse_psfile( cli_opt_t *opt, x264_picture_t *pic, int i_frame )
             opt->psfile = NULL;
             break;
         }
-        int b_valid_pic_struct = ps >= 0 && ps < PIC_STRUCT_TRIPLE && ps != 1 && ps != 2;
+        ++ps; /* x264 offsets pic_struct by one */
+        int b_valid_pic_struct = ps >= PIC_STRUCT_AUTO && ps <= PIC_STRUCT_TRIPLE && ps != 2 && ps != 3;
         if( ret == 3 && b_valid_pic_struct && ffo >= 0 && ffo <= 2)
         {
-            pic->i_pic_struct = ps+1; /* x264 offsets pic_struct by one */
+            pic->i_pic_struct = ps;
             return ffo;
         }
     }
@@ -2005,8 +2012,9 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
     double  duration;
     double  pulldown_pts = 0;
     int     retval = 0;
-    int     field_frame_encoding;// = param->b_interlaced*(param->b_tff ? 2 : 1);
-    int     b_initially_interlaced = param->b_interlaced || param->b_fake_interlaced;
+    int     field_frame_encoding;
+    int     b_use_mbaff = param->b_interlaced || param->b_fake_interlaced;
+    int     b_currently_interlaced = param->b_interlaced;
 
     opt->b_progress &= param->i_log_level < X264_LOG_DEBUG;
 
@@ -2070,23 +2078,38 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
         if( opt->psfile )
         {
             field_frame_encoding = parse_psfile( opt, &pic, i_frame + opt->i_seek );
-            if (field_frame_encoding == 0 && param->b_interlaced)
+            if (field_frame_encoding == 0 && b_currently_interlaced)
             {
-                param->b_fake_interlaced = b_initially_interlaced;
-                x264_encoder_reconfig(h, param);
+                x264_param_t *new_param = calloc(1, sizeof(x264_param_t));
+                memcpy(new_param, param, sizeof(x264_param_t));
+                new_param->b_fake_interlaced = 1;
+                b_currently_interlaced = 0;
+
+                pic.param = new_param;
+                pic.param->param_free = free;
             }
-            else if (field_frame_encoding > 0 && param->b_interlaced)
+            else if (field_frame_encoding > 0 && !b_currently_interlaced && b_use_mbaff)
             {
-                param->b_tff = 2 == field_frame_encoding;
-                param->b_fake_interlaced = 0;
-                x264_encoder_reconfig(h, param);
+                x264_param_t *new_param = calloc(1, sizeof(x264_param_t));
+                memcpy(new_param, param, sizeof(x264_param_t));
+
+                new_param->b_tff = 2 == field_frame_encoding;
+                b_currently_interlaced = 1;
+                new_param->b_fake_interlaced = 0;
+
+                pic.param = new_param;
+                pic.param->param_free = free;
             }
+            else
+            {
+                FAIL_IF_ERROR2( field_frame_encoding > 0 && !b_use_mbaff, "Cannot reconfigure to interlaced." );
+            }
+
             pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
             pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
         }
         else if( opt->i_pulldown && !param->b_vfr_input )
         {
-            x264_cli_log( "x264", X264_LOG_WARNING, "pulldown with psfile!\n" );
             pic.i_pic_struct = pulldown->pattern[ i_frame % pulldown->mod ];
             pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
             pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
