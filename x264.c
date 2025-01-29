@@ -1693,6 +1693,9 @@ generic_option:
     }
     else FAIL_IF_ERROR( !info.vfr && input_opt.timebase, "--timebase is incompatible with cfr input\n" );
 
+    FAIL_IF_ERROR( opt->i_pulldown && opt->psfile, "--pulldown + --psfile is incompatible\n" );
+    FAIL_IF_ERROR( opt->psfile && info.vfr, "--psfile is incompatible with vfr input\n" );
+
     /* init threaded input while the information about the input video is unaltered by filtering */
 #if HAVE_THREAD
     const cli_input_t *thread_input;
@@ -2012,8 +2015,7 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
     double  duration;
     double  pulldown_pts = 0;
     int     retval = 0;
-    int     field_frame_encoding;
-    int     b_use_mbaff = param->b_interlaced || param->b_fake_interlaced;
+    int     i_field_frame_encoding;
     int     b_currently_interlaced = param->b_interlaced;
 
     opt->b_progress &= param->i_log_level < X264_LOG_DEBUG;
@@ -2077,33 +2079,39 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
 
         if( opt->psfile )
         {
-            field_frame_encoding = parse_psfile( opt, &pic, i_frame + opt->i_seek );
-            if (field_frame_encoding == 0 && b_currently_interlaced)
+#define STR_FIELD_ORDER ( 2 == i_field_frame_encoding ? "tff" : "bff" )
+            i_field_frame_encoding = parse_psfile( opt, &pic, i_frame + opt->i_seek );
+            if ( i_field_frame_encoding == 0 && b_currently_interlaced )
             {
-                x264_param_t *new_param = calloc(1, sizeof(x264_param_t));
-                memcpy(new_param, param, sizeof(x264_param_t));
+                x264_param_t *new_param = calloc( 1, sizeof( x264_param_t ) );
+                memcpy( new_param, param, sizeof( x264_param_t ) );
                 new_param->b_fake_interlaced = 1;
                 b_currently_interlaced = 0;
 
                 pic.param = new_param;
                 pic.param->param_free = free;
             }
-            else if (field_frame_encoding > 0 && !b_currently_interlaced && b_use_mbaff)
+            else if ( i_field_frame_encoding > 0 && !b_currently_interlaced && param->b_interlaced )
             {
-                x264_param_t *new_param = calloc(1, sizeof(x264_param_t));
-                memcpy(new_param, param, sizeof(x264_param_t));
+                x264_param_t *new_param = calloc( 1, sizeof(x264_param_t) );
+                memcpy( new_param, param, sizeof(x264_param_t) );
 
-                new_param->b_tff = 2 == field_frame_encoding;
-                b_currently_interlaced = 1;
+                new_param->b_tff = 2 == i_field_frame_encoding;
                 new_param->b_fake_interlaced = 0;
+                b_currently_interlaced = 1;
 
                 pic.param = new_param;
                 pic.param->param_free = free;
             }
             else
             {
-                FAIL_IF_ERROR2( field_frame_encoding > 0 && !b_use_mbaff, "Cannot reconfigure to interlaced." );
+                FAIL_IF_ERROR2( i_field_frame_encoding > 0 && !param->b_interlaced,
+                                "Interlace not configured, cannot encode frame %u as %s.",
+                                i_frame, STR_FIELD_ORDER );
             }
+
+            FAIL_IF_ERROR2( b_currently_interlaced && ( pic.i_pic_struct == PIC_STRUCT_PROGRESSIVE || pic.i_pic_struct >= PIC_STRUCT_DOUBLE ),
+                            "Cannot set a progressive pic_struct on %s frame %u.", STR_FIELD_ORDER, i_frame );
 
             pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
             pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
