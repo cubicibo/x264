@@ -1032,6 +1032,7 @@ static struct option long_options[] =
     { "tune",                 required_argument, NULL, OPT_TUNE },
     { "slow-firstpass",       no_argument,       NULL, OPT_SLOWFIRSTPASS },
     { "bitrate",              required_argument, NULL, 'B' },
+    { "min-bitrate",          required_argument, NULL, 0 },
     { "bframes",              required_argument, NULL, 'b' },
     { "b-adapt",              required_argument, NULL, 0 },
     { "no-b-adapt",           no_argument,       NULL, 0 },

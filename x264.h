@@ -445,6 +445,7 @@ typedef struct x264_param_t
         int         i_qp_step;      /* max QP step between frames */
 
         int         i_bitrate;
+        int         i_min_bitrate;
         float       f_rf_constant;  /* 1pass VBR, nominal QP */
         float       f_rf_constant_max;  /* In CRF mode, maximum CRF as caused by VBV */
         float       f_rate_tolerance;

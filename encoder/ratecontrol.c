@@ -2138,6 +2138,8 @@ static int update_vbv( x264_t *h, int bits )
 {
     int filler = 0;
     int bitrate = h->sps->vui.hrd.i_bit_rate_unscaled;
+    int kilobit_size = h->param.i_avcintra_class ? 1024 : 1000;
+
     x264_ratecontrol_t *rcc = h->rc;
     x264_ratecontrol_t *rct = h->thread[0]->rc;
     int64_t buffer_size = (int64_t)h->sps->vui.hrd.i_cpb_size_unscaled * h->sps->vui.i_time_scale;
@@ -2151,6 +2153,10 @@ static int update_vbv( x264_t *h, int bits )
     uint64_t buffer_diff = (uint64_t)bits * h->sps->vui.i_time_scale;
     rct->buffer_fill_final -= buffer_diff;
     rct->buffer_fill_final_min -= buffer_diff;
+
+    //Only add VBR filler if the current frame consumes fewer bits
+    int64_t min_bits_diff = (int64_t)h->param.rc.i_min_bitrate * kilobit_size * h->sps->vui.i_num_units_in_tick * h->fenc->i_cpb_duration;
+    min_bits_diff = buffer_diff > min_bits_diff ? 0 : min_bits_diff - buffer_diff;
 
     if( rct->buffer_fill_final_min < 0 )
     {
@@ -2172,20 +2178,19 @@ static int update_vbv( x264_t *h, int bits )
 
     if( rct->buffer_fill_final > buffer_size )
     {
-        if( h->param.rc.b_filler )
+        if( h->param.rc.b_filler || min_bits_diff > 0 )
         {
             int64_t scale = (int64_t)h->sps->vui.i_time_scale * 8;
-            filler = (rct->buffer_fill_final - buffer_size + scale - 1) / scale;
+            if ( min_bits_diff == 0 )
+                min_bits_diff = rct->buffer_fill_final - buffer_size;
+            filler = ( min_bits_diff + scale - 1 ) / scale;
             bits = h->param.i_avcintra_class ? filler * 8 : X264_MAX( (FILLER_OVERHEAD - h->param.b_annexb), filler ) * 8;
             buffer_diff = (uint64_t)bits * h->sps->vui.i_time_scale;
             rct->buffer_fill_final -= buffer_diff;
             rct->buffer_fill_final_min -= buffer_diff;
         }
-        else
-        {
-            rct->buffer_fill_final = X264_MIN( rct->buffer_fill_final, buffer_size );
-            rct->buffer_fill_final_min = X264_MIN( rct->buffer_fill_final_min, buffer_size );
-        }
+        rct->buffer_fill_final = X264_MIN( rct->buffer_fill_final, buffer_size );
+        rct->buffer_fill_final_min = X264_MIN( rct->buffer_fill_final_min, buffer_size );
     }
 
     return filler;
