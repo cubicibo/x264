@@ -1049,6 +1049,39 @@ static int validate_parameters( x264_t *h, int b_open )
     if( h->param.i_slice_count_max > 0 )
         h->param.i_slice_count_max = X264_MAX( h->param.i_slice_count, h->param.i_slice_count_max );
 
+    if ( h->param.i_slice_mbs_row )
+    {
+        if ( h->param.i_slice_max_size || h->param.i_slice_max_mbs || h->param.i_slice_min_mbs)
+        {
+            x264_log( h, X264_LOG_ERROR, "cannot specify both slice min-max and mbs rows together" );
+            return -1;
+        }
+        else if ( !h->param.i_slice_count || h->param.i_slice_mbs_row[h->param.i_slice_count] != h->param.i_slice_count ) /* ?? */
+        {
+            x264_log( h, X264_LOG_ERROR, "slice count and mbs row params mismatch" );
+            return -1;
+        }
+
+        // multi-slices on BD requires the largest slice to be equal or smaller to half of the screen.
+        int max_slice_mbs_row = max_slices >> (!!( h->param.b_bluray_compat && ( 1 < h->param.i_slice_count )));
+        int mbs_rows = 0;
+
+        for ( int i = 0; i < h->param.i_slice_count; ++i )
+        {
+            if ( h->param.i_slice_mbs_row[i] > max_slice_mbs_row )
+            {
+                x264_log( h, X264_LOG_ERROR, "slice %u exceed max mbs rows (%u > %u)\n", i, h->param.i_slice_mbs_row[i], max_slice_mbs_row );
+                return -1;
+            }
+            mbs_rows += h->param.i_slice_mbs_row[i];
+        }
+        if ( mbs_rows != max_slices )
+        {
+            x264_log( h, X264_LOG_ERROR, "expected %u mbs rows, got %u\n", max_slices, mbs_rows);
+            return -1;
+        }
+    }
+
     if( h->param.b_bluray_compat )
     {
         h->param.i_bframe_pyramid = X264_MIN( X264_B_PYRAMID_STRICT, h->param.i_bframe_pyramid );
@@ -1918,6 +1951,7 @@ static int encoder_try_reconfig( x264_t *h, x264_param_t *param, int *rc_reconfi
     COPY( i_slice_min_mbs );
     COPY( i_slice_count );
     COPY( i_slice_count_max );
+    COPY( i_slice_mbs_row );
     COPY( b_tff );
     COPY( b_fake_interlaced );
 
@@ -3206,10 +3240,23 @@ static void *slices_write( x264_t *h )
             }
             else if( h->param.i_slice_count && !h->param.b_sliced_threads )
             {
+                i_slice_num++;
                 int height = h->mb.i_mb_height >> PARAM_INTERLACED;
                 int width = h->mb.i_mb_width << PARAM_INTERLACED;
-                i_slice_num++;
-                h->sh.i_last_mb = (height * i_slice_num + round_bias) / h->param.i_slice_count * width - 1;
+                if ( h->param.i_slice_mbs_row )
+                {
+                    int last_mb_ref = 0;
+                    for ( int sn = 0; sn < i_slice_num; ++sn )
+                    {
+                        /* i_mb_{width, height} is pic_{width, height}_in_mbs */
+                        last_mb_ref += (h->param.i_slice_mbs_row[sn] * width);
+                    }
+                    h->sh.i_last_mb = last_mb_ref - 1;
+                }
+                else
+                {
+                    h->sh.i_last_mb = (height * i_slice_num + round_bias) / h->param.i_slice_count * width - 1;
+                }
             }
         }
         h->sh.i_last_mb = X264_MIN( h->sh.i_last_mb, last_thread_mb );

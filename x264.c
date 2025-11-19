@@ -712,6 +712,8 @@ static void help( x264_param_t *defaults, int longhelp )
     else H1( "      --slices <integer>      Number of slices per frame\n" );
     H2( "      --slices-max <integer>  Absolute maximum slices per frame; overrides\n"
         "                              slice-max-size/slice-max-mbs when necessary\n" );
+    H2( "      --slices-mbs-row <string>  Number of macroblock rows for each slice\n"
+        "                               e.g. with 4 slices: 8/26/26/8\n" );
     H2( "      --slice-max-size <integer> Limit the size of each slice in bytes\n");
     H2( "      --slice-max-mbs <integer> Limit the size of each slice in macroblocks (max)\n");
     H2( "      --slice-min-mbs <integer> Limit the size of each slice in macroblocks (min)\n");
@@ -1134,6 +1136,7 @@ static struct option long_options[] =
     { "slice-max-mbs",        required_argument, NULL, 0 },
     { "slice-min-mbs",        required_argument, NULL, 0 },
     { "slices",               required_argument, NULL, 0 },
+    { "slices-mbs-row",       required_argument, NULL, 0 },
     { "slices-max",           required_argument, NULL, 0 },
     { "thread-input",         no_argument,       NULL, OPT_THREAD_INPUT },
     { "sync-lookahead",       required_argument, NULL, 0 },

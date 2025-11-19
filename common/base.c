@@ -371,7 +371,8 @@ REALIGN_STACK void x264_param_default( x264_param_t *param )
     param->i_level_idc     = -1;
     param->i_slice_max_size = 0;
     param->i_slice_max_mbs = 0;
-    param->i_slice_count = 0;
+    param->i_slice_count   = 0;
+    param->i_slice_mbs_row = NULL;
 #if HAVE_BITDEPTH8
     param->i_bitdepth = 8;
 #elif HAVE_BITDEPTH10
@@ -836,6 +837,51 @@ static int parse_cqm( const char *str, uint8_t *cqm, int length )
     return (i == length) ? 0 : -1;
 }
 
+static int parse_slice_mbs_row( const char *str, int **pdest )
+{
+    // assume max 32 slices, 2 digit number per slice with separator.
+    int i_expected_slice_count = 1;
+    int b_terminated = 0;
+#define MAX_SLICES_ROW_MBS_LEN (32*3)
+    for ( int i = 0; i < MAX_SLICES_ROW_MBS_LEN; ++i )
+    {
+        if ( '/' == str[i] )
+        {
+            ++i_expected_slice_count;
+        }
+        else if ( '\0' == str[i] )
+        {
+            b_terminated = 1;
+            break;
+        }
+    }
+#undef MAX_SLICES_ROW_MBS_LEN
+
+    if ( !b_terminated )
+        return -1;
+
+    int *dest = (int*)x264_malloc( sizeof(int) * (i_expected_slice_count + 1) );
+    if ( !dest )
+        return -1;
+
+    for ( int i = 0; i < i_expected_slice_count; ++i )
+    {
+        int read = sscanf( str, "%u", &dest[i] );
+        //level 6.2 max row is 270 (4320 / 16)
+        if ( !read || !dest[i] || dest[i] > 270 )
+        {
+            free( dest );
+            return -1;
+        }
+        /* log10 */
+        str += 2 + (!!(dest[i] > 9) + !!(dest[i] > 99));
+    }
+    /* for future verification with --slices */
+    dest[i_expected_slice_count] = i_expected_slice_count;
+    *pdest = dest;
+    return 0;
+}
+
 static int atobool_internal( const char *str, int *b_error )
 {
     if( !strcmp(str, "1") ||
@@ -1147,6 +1193,8 @@ REALIGN_STACK int x264_param_parse( x264_param_t *p, const char *name, const cha
         p->i_slice_min_mbs = atoi(value);
     OPT("slices")
         p->i_slice_count = atoi(value);
+    OPT("slices-mbs-row")
+        b_error |= parse_slice_mbs_row(value, &p->i_slice_mbs_row);
     OPT("slices-max")
         p->i_slice_count_max = atoi(value);
     OPT("cabac")
