@@ -1502,7 +1502,8 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
         return;
     }
 
-    keyint_limit = h->param.i_keyint_max - frames[0]->i_pts + h->lookahead->i_last_keyframe_pts - 1;
+    /* subtract duration to not exceed keyint with frame doubling or tripling */
+    keyint_limit = h->param.i_keyint_max - frames[0]->i_pts + h->lookahead->i_last_keyframe_pts - X264_MAX( (frames[0]->i_duration >> 1), 1);
     orig_num_frames = num_frames = h->param.b_intra_refresh ? framecnt : X264_MIN( framecnt, keyint_limit );
 
     /* This is important psy-wise: if we have a non-scenecut keyframe,
