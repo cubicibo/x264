@@ -1,7 +1,7 @@
 /*****************************************************************************
  * osdep.h: platform-specific code
  *****************************************************************************
- * Copyright (C) 2007-2024 x264 project
+ * Copyright (C) 2007-2025 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -247,9 +247,8 @@ static inline int x264_is_regular_file_path( const char *path )
     if( path_utf16 )
     {
         x264_struct_stat buf;
-        if( _wstati64( path_utf16, &buf ) )
-            ret = !WaitNamedPipeW( path_utf16, 0 );
-        else
+        ret = !(WaitNamedPipeW( path_utf16, 0 ) || GetLastError() == ERROR_SEM_TIMEOUT);
+        if( ret && !_wstati64( path_utf16, &buf ) )
             ret = S_ISREG( buf.st_mode );
         if( path_utf16 != path_buf )
             free( path_utf16 );
