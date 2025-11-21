@@ -2087,17 +2087,17 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
             i_field_frame_encoding = parse_psfile( opt, &pic, i_frame + opt->i_seek );
             if ( i_field_frame_encoding == 0 && i_active_field_order )
             {
-                x264_param_t *new_param = calloc( 1, sizeof( x264_param_t ) );
+                x264_param_t *new_param = x264_malloc( sizeof( x264_param_t ) );
                 memcpy( new_param, param, sizeof( x264_param_t ) );
                 new_param->b_fake_interlaced = 1;
                 i_active_field_order = 0;
 
                 pic.param = new_param;
-                pic.param->param_free = free;
+                pic.param->param_free = x264_free;
             }
             else if ( i_field_frame_encoding != i_active_field_order && param->b_interlaced )
             {
-                x264_param_t *new_param = calloc( 1, sizeof(x264_param_t) );
+                x264_param_t *new_param = x264_malloc( sizeof(x264_param_t) );
                 memcpy( new_param, param, sizeof(x264_param_t) );
 
                 new_param->b_tff = 2 == i_field_frame_encoding;
@@ -2105,7 +2105,7 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
                 i_active_field_order = 1 + new_param->b_tff;
 
                 pic.param = new_param;
-                pic.param->param_free = free;
+                pic.param->param_free = x264_free;
             }
             else
             {
