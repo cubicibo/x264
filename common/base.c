@@ -1358,9 +1358,9 @@ REALIGN_STACK int x264_param_parse( x264_param_t *p, const char *name, const cha
         p->rc.i_bitrate = atoi(value);
         p->rc.i_rc_method = X264_RC_ABR;
     }
-    OPT("min-bitrate")
+    OPT("vbv-minrate")
     {
-        p->rc.i_min_bitrate = atoi(value);
+        p->rc.i_vbv_min_bitrate = atoi(value);
     }
     OPT2("qp", "qp_constant")
     {

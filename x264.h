@@ -445,11 +445,11 @@ typedef struct x264_param_t
         int         i_qp_step;      /* max QP step between frames */
 
         int         i_bitrate;
-        int         i_min_bitrate;
         float       f_rf_constant;  /* 1pass VBR, nominal QP */
         float       f_rf_constant_max;  /* In CRF mode, maximum CRF as caused by VBV */
         float       f_rate_tolerance;
         int         i_vbv_max_bitrate;
+        int         i_vbv_min_bitrate;
         int         i_vbv_buffer_size;
         float       f_vbv_buffer_init; /* <=1: fraction of buffer_size. >1: kbit */
         float       f_ip_factor;

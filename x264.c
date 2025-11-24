@@ -744,6 +744,7 @@ static void help( x264_param_t *defaults, int longhelp )
     H0( "      --vbv-maxrate <integer> Max local bitrate (kbit/s) [%d]\n", defaults->rc.i_vbv_max_bitrate );
     H0( "      --vbv-bufsize <integer> Set size of the VBV buffer (kbit) [%d]\n", defaults->rc.i_vbv_buffer_size );
     H2( "      --vbv-init <float>      Initial VBV buffer occupancy [%.1f]\n", defaults->rc.f_vbv_buffer_init );
+    H2( "      --vbv-minrate <integer> Min VBV rate at any time (kbit/s) [0]\n" );
     H2( "      --crf-max <float>       With CRF+VBV, limit RF to this value\n"
         "                                  May cause VBV underflows!\n" );
     H2( "      --qpmin <integer>       Set min QP [%d]\n", defaults->rc.i_qp_min );
@@ -1034,7 +1035,7 @@ static struct option long_options[] =
     { "tune",                 required_argument, NULL, OPT_TUNE },
     { "slow-firstpass",       no_argument,       NULL, OPT_SLOWFIRSTPASS },
     { "bitrate",              required_argument, NULL, 'B' },
-    { "min-bitrate",          required_argument, NULL, 0 },
+    { "vbv-minrate",          required_argument, NULL, 0 },
     { "bframes",              required_argument, NULL, 'b' },
     { "b-adapt",              required_argument, NULL, 0 },
     { "no-b-adapt",           no_argument,       NULL, 0 },

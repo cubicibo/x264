@@ -2155,7 +2155,7 @@ static int update_vbv( x264_t *h, int bits )
     rct->buffer_fill_final_min -= buffer_diff;
 
     //Only add VBR filler if the current frame consumes fewer bits
-    int64_t min_bits_diff = (int64_t)h->param.rc.i_min_bitrate * kilobit_size * h->sps->vui.i_num_units_in_tick * h->fenc->i_cpb_duration;
+    int64_t min_bits_diff = (int64_t)h->param.rc.i_vbv_min_bitrate * kilobit_size * h->sps->vui.i_num_units_in_tick * h->fenc->i_cpb_duration;
     min_bits_diff = buffer_diff > min_bits_diff ? 0 : min_bits_diff - buffer_diff;
 
     if( rct->buffer_fill_final_min < 0 )

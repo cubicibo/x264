@@ -867,7 +867,7 @@ static int validate_parameters( x264_t *h, int b_open )
         h->param.rc.i_vbv_buffer_size = avcintra_lut[type][res][i].frame_size;
         h->param.rc.i_vbv_max_bitrate =
         h->param.rc.i_bitrate = h->param.rc.i_vbv_buffer_size * fps_num / fps_den;
-        h->param.rc.i_min_bitrate = 0;
+        h->param.rc.i_vbv_min_bitrate = 0;
         h->param.rc.i_rc_method = X264_RC_ABR;
         h->param.rc.f_vbv_buffer_init = 1.0;
         h->param.rc.b_filler = 1;
@@ -1005,11 +1005,11 @@ static int validate_parameters( x264_t *h, int b_open )
             x264_log( h, X264_LOG_WARNING, "max bitrate less than average bitrate, assuming CBR\n" );
             h->param.rc.i_bitrate = h->param.rc.i_vbv_max_bitrate;
         }
-        else if( h->param.rc.i_min_bitrate > h->param.rc.i_vbv_max_bitrate &&
+        else if( h->param.rc.i_vbv_min_bitrate > h->param.rc.i_vbv_max_bitrate &&
                  h->param.rc.i_rc_method == X264_RC_ABR )
         {
             x264_log( h, X264_LOG_WARNING, "min bitrate exceed vbv-maxrate, ignored min bitrate.\n" );
-            h->param.rc.i_min_bitrate = 0;
+            h->param.rc.i_vbv_min_bitrate = 0;
         }
     }
     else if( h->param.rc.i_vbv_max_bitrate )
@@ -1404,10 +1404,10 @@ static int validate_parameters( x264_t *h, int b_open )
     if( h->param.i_nal_hrd == X264_NAL_HRD_CBR )
         h->param.rc.b_filler = 1;
 
-    if( h->param.i_nal_hrd != X264_NAL_HRD_VBR && h->param.rc.i_min_bitrate > 0 )
+    if( h->param.i_nal_hrd != X264_NAL_HRD_VBR && h->param.rc.i_vbv_min_bitrate > 0 )
     {
         x264_log( h, X264_LOG_WARNING, "min bitrate only used in VBR HRD, ignored.\n" );
-        h->param.rc.i_min_bitrate = 0;
+        h->param.rc.i_vbv_min_bitrate = 0;
     }
 
     /* ensure the booleans are 0 or 1 so they can be used in math */
@@ -1962,11 +1962,11 @@ static int encoder_try_reconfig( x264_t *h, x264_param_t *param, int *rc_reconfi
         *rc_reconfig |= h->param.rc.i_vbv_max_bitrate != param->rc.i_vbv_max_bitrate;
         *rc_reconfig |= h->param.rc.i_vbv_buffer_size != param->rc.i_vbv_buffer_size;
         *rc_reconfig |= h->param.rc.i_bitrate != param->rc.i_bitrate;
-        *rc_reconfig |= h->param.rc.i_min_bitrate != param->rc.i_min_bitrate;
+        *rc_reconfig |= h->param.rc.i_vbv_min_bitrate != param->rc.i_vbv_min_bitrate;
         COPY( rc.i_vbv_max_bitrate );
         COPY( rc.i_vbv_buffer_size );
         COPY( rc.i_bitrate );
-        COPY( rc.i_min_bitrate );
+        COPY( rc.i_vbv_min_bitrate );
     }
     *rc_reconfig |= h->param.rc.f_rf_constant != param->rc.f_rf_constant;
     *rc_reconfig |= h->param.rc.f_rf_constant_max != param->rc.f_rf_constant_max;
