@@ -1,7 +1,7 @@
 /*****************************************************************************
  * slicetype.c: lookahead analysis
  *****************************************************************************
- * Copyright (C) 2005-2024 x264 project
+ * Copyright (C) 2005-2025 x264 project
  *
  * Authors: Fiona Glaser <fiona@x264.com>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -1502,7 +1502,8 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
         return;
     }
 
-    keyint_limit = h->param.i_keyint_max - frames[0]->i_frame + h->lookahead->i_last_keyframe - 1;
+    /* subtract duration to not exceed keyint with frame doubling or tripling */
+    keyint_limit = h->param.i_keyint_max - frames[0]->i_pts + h->lookahead->i_last_keyframe_pts - X264_MAX( (frames[0]->i_duration >> 1), 1);
     orig_num_frames = num_frames = h->param.b_intra_refresh ? framecnt : X264_MIN( framecnt, keyint_limit );
 
     /* This is important psy-wise: if we have a non-scenecut keyframe,
@@ -1680,42 +1681,42 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
     /* Enforce keyframe limit. */
     if( !h->param.b_intra_refresh )
     {
-        int last_keyframe = h->lookahead->i_last_keyframe;
+        int last_keyframe_pts = h->lookahead->i_last_keyframe_pts;
         int last_possible = 0;
         for( int j = 1; j <= num_frames; j++ )
         {
             x264_frame_t *frm = frames[j];
-            int keyframe_dist = frm->i_frame - last_keyframe;
+            int keyframe_dist_pts = frm->i_pts - last_keyframe_pts;
 
             if( IS_X264_TYPE_AUTO_OR_I( frm->i_forced_type ) )
             {
                 if( h->param.b_open_gop || !IS_X264_TYPE_B( frames[j-1]->i_forced_type ) )
                     last_possible = j;
             }
-            if( keyframe_dist >= h->param.i_keyint_max )
+            if( keyframe_dist_pts >= h->param.i_keyint_max )
             {
                 if( last_possible != 0 && last_possible != j )
                 {
                     j = last_possible;
                     frm = frames[j];
-                    keyframe_dist = frm->i_frame - last_keyframe;
+                    keyframe_dist_pts = frm->i_pts - last_keyframe_pts;
                 }
                 last_possible = 0;
                 if( frm->i_type != X264_TYPE_IDR )
                     frm->i_type = h->param.b_open_gop ? X264_TYPE_I : X264_TYPE_IDR;
             }
-            if( frm->i_type == X264_TYPE_I && keyframe_dist >= h->param.i_keyint_min )
+            if( frm->i_type == X264_TYPE_I && keyframe_dist_pts >= h->param.i_keyint_min )
             {
                 if( h->param.b_open_gop )
                 {
-                    last_keyframe = frm->i_frame;
+                    last_keyframe_pts = frm->i_pts;
                     if( h->param.b_bluray_compat )
                     {
                         // Use bluray order
                         int bframes = 0;
                         while( bframes < j-1 && IS_X264_TYPE_B( frames[j-1-bframes]->i_type ) )
                             bframes++;
-                        last_keyframe -= bframes;
+                        last_keyframe_pts -= (frames[j-1]->i_pts - frames[j-1-bframes]->i_pts);
                     }
                 }
                 else if( frm->i_forced_type != X264_TYPE_I )
@@ -1723,7 +1724,7 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
             }
             if( frm->i_type == X264_TYPE_IDR )
             {
-                last_keyframe = frm->i_frame;
+                last_keyframe_pts = frm->i_pts;
                 if( j > 1 && IS_X264_TYPE_B( frames[j-1]->i_type ) )
                     frames[j-1]->i_type = X264_TYPE_P;
             }
@@ -1828,7 +1829,7 @@ void x264_slicetype_decide( x264_t *h )
             frm->i_type = h->param.b_open_gop ? X264_TYPE_I : X264_TYPE_IDR;
 
         /* Limit GOP size */
-        if( (!h->param.b_intra_refresh || frm->i_frame == 0) && frm->i_frame - h->lookahead->i_last_keyframe >= h->param.i_keyint_max )
+        if( (!h->param.b_intra_refresh || frm->i_frame == 0) && frm->i_pts - h->lookahead->i_last_keyframe_pts >= h->param.i_keyint_max )
         {
             if( frm->i_type == X264_TYPE_AUTO || frm->i_type == X264_TYPE_I )
                 frm->i_type = h->param.b_open_gop && h->lookahead->i_last_keyframe >= 0 ? X264_TYPE_I : X264_TYPE_IDR;
@@ -1841,13 +1842,17 @@ void x264_slicetype_decide( x264_t *h )
                 frm->i_type = h->param.b_open_gop && h->lookahead->i_last_keyframe >= 0 ? X264_TYPE_I : X264_TYPE_IDR;
             }
         }
-        if( frm->i_type == X264_TYPE_I && frm->i_frame - h->lookahead->i_last_keyframe >= h->param.i_keyint_min )
+        if( frm->i_type == X264_TYPE_I && frm->i_pts - h->lookahead->i_last_keyframe_pts >= h->param.i_keyint_min )
         {
             if( h->param.b_open_gop )
             {
                 h->lookahead->i_last_keyframe = frm->i_frame; // Use display order
-                if( h->param.b_bluray_compat )
+                h->lookahead->i_last_keyframe_pts = frm->i_pts;
+
+                if( h->param.b_bluray_compat ) {
                     h->lookahead->i_last_keyframe -= bframes; // Use bluray order
+                    h->lookahead->i_last_keyframe_pts -= (frm->i_pts - h->lookahead->next.list[0]->i_pts);
+                }
                 frm->b_keyframe = 1;
             }
             else
@@ -1857,6 +1862,7 @@ void x264_slicetype_decide( x264_t *h )
         {
             /* Close GOP */
             h->lookahead->i_last_keyframe = frm->i_frame;
+            h->lookahead->i_last_keyframe_pts = frm->i_pts;
             frm->b_keyframe = 1;
             if( bframes > 0 )
             {
