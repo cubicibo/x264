@@ -1394,7 +1394,7 @@ static int scenecut_internal( x264_t *h, x264_mb_analysis_t *a, x264_frame_t **f
     int icost = frame->i_cost_est[0][0];
     int pcost = frame->i_cost_est[p1-p0][0];
     float f_bias;
-    int i_gop_size = frame->i_frame - h->lookahead->i_last_keyframe;
+    int i_gop_dur = frame->i_pts - h->lookahead->i_last_keyframe_pts;
     float f_thresh_max = h->param.i_scenecut_threshold / 100.0;
     /* magic numbers pulled out of thin air */
     float f_thresh_min = f_thresh_max * 0.25;
@@ -1402,15 +1402,15 @@ static int scenecut_internal( x264_t *h, x264_mb_analysis_t *a, x264_frame_t **f
 
     if( h->param.i_keyint_min == h->param.i_keyint_max )
         f_thresh_min = f_thresh_max;
-    if( i_gop_size <= h->param.i_keyint_min / 4 || h->param.b_intra_refresh )
+    if( i_gop_dur <= h->param.i_keyint_min / 4 || h->param.b_intra_refresh )
         f_bias = f_thresh_min / 4;
-    else if( i_gop_size <= h->param.i_keyint_min )
-        f_bias = f_thresh_min * i_gop_size / h->param.i_keyint_min;
+    else if( i_gop_dur <= h->param.i_keyint_min )
+        f_bias = f_thresh_min * i_gop_dur / h->param.i_keyint_min;
     else
     {
         f_bias = f_thresh_min
                  + ( f_thresh_max - f_thresh_min )
-                 * ( i_gop_size - h->param.i_keyint_min )
+                 * ( i_gop_dur - h->param.i_keyint_min )
                  / ( h->param.i_keyint_max - h->param.i_keyint_min );
     }
 
@@ -1422,7 +1422,7 @@ static int scenecut_internal( x264_t *h, x264_mb_analysis_t *a, x264_frame_t **f
         x264_log( h, X264_LOG_DEBUG, "scene cut at %d Icost:%d Pcost:%d ratio:%.4f bias:%.4f gop:%d (imb:%d pmb:%d)\n",
                   frame->i_frame,
                   icost, pcost, 1. - (double)pcost / icost,
-                  f_bias, i_gop_size, imb, pmb );
+                  f_bias, i_gop_dur, imb, pmb );
     }
     return res;
 }
@@ -1474,7 +1474,7 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
 {
     x264_mb_analysis_t a;
     x264_frame_t *frames[X264_LOOKAHEAD_MAX+3] = { NULL, };
-    int num_frames, orig_num_frames, keyint_limit, framecnt;
+    int num_frames, orig_num_frames, keyint_time_limit, framecnt;
     int i_max_search = X264_MIN( h->lookahead->next.i_size, X264_LOOKAHEAD_MAX );
     int b_vbv_lookahead = h->param.rc.i_vbv_buffer_size && h->param.rc.i_lookahead;
     /* For determinism we should limit the search to the number of frames lookahead has for sure
@@ -1490,8 +1490,18 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
     if( !h->lookahead->last_nonb )
         return;
     frames[0] = h->lookahead->last_nonb;
+    keyint_time_limit = h->param.i_keyint_max - frames[0]->i_pts + h->lookahead->i_last_keyframe_pts - X264_MAX( (frames[0]->i_duration >> 1), 1);
+    keyint_time_limit <<= 1; /* count pair of fields */
+
+    int ahead_duration = 0, max_framecnt_keyint = 0;
     for( framecnt = 0; framecnt < i_max_search; framecnt++ )
+    {
         frames[framecnt+1] = h->lookahead->next.list[framecnt];
+        ahead_duration += frames[framecnt+1]->i_duration;
+
+        if (ahead_duration < keyint_time_limit)
+            max_framecnt_keyint = framecnt+1;
+    }
 
     lowres_context_init( h, &a );
 
@@ -1502,10 +1512,7 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
         return;
     }
 
-    /* subtract duration to not exceed keyint with frame doubling or tripling */
-    keyint_limit = h->param.i_keyint_max - frames[0]->i_pts + h->lookahead->i_last_keyframe_pts - X264_MAX( (frames[0]->i_duration >> 1), 1);
-    orig_num_frames = num_frames = h->param.b_intra_refresh ? framecnt : X264_MIN( framecnt, keyint_limit );
-
+    orig_num_frames = num_frames = h->param.b_intra_refresh ? framecnt : X264_MIN( framecnt, max_framecnt_keyint );
     /* This is important psy-wise: if we have a non-scenecut keyframe,
      * there will be significant visual artifacts if the frames just before
      * go down in quality due to being referenced less, despite it being
