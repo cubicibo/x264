@@ -149,7 +149,7 @@ const char * const x264_avcintra_class_names[] = { "50", "100", "200", "300", "4
 const char * const x264_cqm_names[] = { "flat", "jvt", 0 };
 const char * const x264_log_level_names[] = { "none", "error", "warning", "info", "debug", 0 };
 const char * const x264_partition_names[] = { "p8x8", "p4x4", "b8x8", "i8x8", "i4x4", "none", "all", 0 };
-const char * const x264_pulldown_names[] = { "none", "22", "32", "64", "double", "triple", "euro", 0 };
+const char * const x264_pulldown_names[] = { "none", "22", "32", "64", "double", "triple", "euro", "23232", 0 };
 const char * const x264_range_names[] = { "auto", "tv", "pc", 0 };
 
 const char * const x264_output_csp_names[] =
@@ -225,7 +225,7 @@ typedef struct
 {
     int mod;
     uint8_t pattern[24];
-    float fps_factor;
+    double fps_factor;
 } cli_pulldown_t;
 
 enum pulldown_type_e
@@ -235,7 +235,8 @@ enum pulldown_type_e
     X264_PULLDOWN_64,
     X264_PULLDOWN_DOUBLE,
     X264_PULLDOWN_TRIPLE,
-    X264_PULLDOWN_EURO
+    X264_PULLDOWN_EURO,
+    X264_PULLDOWN_23232,
 };
 
 #define TB  PIC_STRUCT_TOP_BOTTOM
@@ -247,11 +248,12 @@ static const cli_pulldown_t pulldown_values[] =
 {
     [X264_PULLDOWN_22]     = {1,  {TB},                                   1.0},
     [X264_PULLDOWN_32]     = {4,  {TBT, BT, BTB, TB},                     1.25},
-    [X264_PULLDOWN_64]     = {2,  {PIC_STRUCT_DOUBLE, PIC_STRUCT_TRIPLE}, 1.0},
+    [X264_PULLDOWN_64]     = {2,  {PIC_STRUCT_DOUBLE, PIC_STRUCT_TRIPLE}, 2.5},
     [X264_PULLDOWN_DOUBLE] = {1,  {PIC_STRUCT_DOUBLE},                    2.0},
     [X264_PULLDOWN_TRIPLE] = {1,  {PIC_STRUCT_TRIPLE},                    3.0},
     [X264_PULLDOWN_EURO]   = {24, {TBT, BT, BT, BT, BT, BT, BT, BT, BT, BT, BT, BT,
-                                   BTB, TB, TB, TB, TB, TB, TB, TB, TB, TB, TB, TB}, 25.0/24.0}
+                                   BTB, TB, TB, TB, TB, TB, TB, TB, TB, TB, TB, TB}, 25.0/24.0},
+    [X264_PULLDOWN_23232]  = {5,  {TBT, BT, BTB, TB, TB}, 1.2},
 };
 
 #undef TB
