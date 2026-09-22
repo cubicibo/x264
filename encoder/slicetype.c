@@ -1683,7 +1683,7 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
     /* Perform the actual macroblock tree analysis.
      * Don't go farther than the maximum keyframe interval; this helps in short GOPs. */
     if( h->param.rc.b_mb_tree )
-        macroblock_tree( h, &a, frames, X264_MIN(num_frames, h->param.i_keyint_max), keyframe );
+        macroblock_tree( h, &a, frames, X264_MIN(num_frames, max_framecnt_keyint), keyframe );
 
     /* Enforce keyframe limit. */
     if( !h->param.b_intra_refresh )
