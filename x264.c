@@ -1877,8 +1877,13 @@ static int parse_psfile( cli_opt_t *opt, x264_picture_t *pic, int i_frame )
             pic->i_pic_struct = ps;
             return ffo;
         }
+        if (!b_valid_pic_struct)
+        {
+            x264_cli_log( "x264", X264_LOG_ERROR, "psfile: got invalid structure '%d' for frame %d.\n", i_frame, ps );
+            exit(1);
+        }
     }
-    FAIL_IF_ERROR( 1, "psfile parsing failed (or attempted to use PAFF).\n" );
+    return -1;
 }
 
 
@@ -2022,8 +2027,9 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
     double  duration;
     double  pulldown_pts = 0;
     int     retval = 0;
-    int     i_field_frame_encoding;
+    int     i_field_frame_encoding = 0;
     int     i_active_field_order = param->b_interlaced ? 1 + param->b_tff : 0;
+    int     b_orphaned_field = 0;
 
     opt->b_progress &= param->i_log_level < X264_LOG_DEBUG;
 
@@ -2084,12 +2090,24 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
         if( !param->b_vfr_input )
             pic.i_pts = i_frame;
 
-        if( opt->psfile )
+        if( opt->psfile || i_field_frame_encoding < 0)
         {
 #define STR_FIELD_ORDER ( 2 == i_field_frame_encoding ? "tff" : "bff" )
-            i_field_frame_encoding = parse_psfile( opt, &pic, i_frame + opt->i_seek );
+            if ( opt->psfile )
+                i_field_frame_encoding = parse_psfile( opt, &pic, i_frame + opt->i_seek );
+            if ( i_field_frame_encoding < 0)
+            {
+                /* interlaced requires a structure for every frame, else we risk field pairing issues */
+                FAIL_IF_ERROR2( param->b_interlaced, "no picture structure specified for frame %d in interlace mode.\n",
+                                i_frame + opt->i_seek );
+                pic.i_pic_struct = PIC_STRUCT_PROGRESSIVE;
+            }
+
             if ( i_field_frame_encoding == 0 && i_active_field_order )
             {
+                FAIL_IF_ERROR2( b_orphaned_field, "Switching to progressive at frame %d with an orphaned field.\n",
+                                i_frame + opt->i_seek );
+
                 x264_param_t *new_param = x264_malloc( sizeof( x264_param_t ) );
                 memcpy( new_param, param, sizeof( x264_param_t ) );
                 new_param->b_fake_interlaced = 1;
@@ -2114,12 +2132,16 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
             {
                 FAIL_IF_ERROR2( i_field_frame_encoding > 0 && !param->b_interlaced,
                                 "Interlace not configured, cannot encode frame %u as %s.",
-                                i_frame, STR_FIELD_ORDER );
+                                i_frame + opt->i_seek, STR_FIELD_ORDER );
             }
 
             FAIL_IF_ERROR2( i_active_field_order && ( pic.i_pic_struct == PIC_STRUCT_PROGRESSIVE || pic.i_pic_struct >= PIC_STRUCT_DOUBLE ),
-                            "Cannot set a progressive pic_struct on %s frame %u.", STR_FIELD_ORDER, i_frame );
+                            "Cannot set a progressive pic_struct on %s frame %u.", STR_FIELD_ORDER, i_frame + opt->i_seek);
 
+            if (i_active_field_order > 0)
+                b_orphaned_field ^= !!(pic.i_pic_struct == PIC_STRUCT_TOP_BOTTOM_TOP || pic.i_pic_struct == PIC_STRUCT_BOTTOM_TOP_BOTTOM);
+
+#undef STR_FIELD_ORDER
             pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
             pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
         }
